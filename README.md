@@ -9,15 +9,7 @@
 
 Cross-platform native global hotkey helpers for MoonBit.
 
-The package lives under [`src`](src), targets `native`, and exposes a small polling-friendly API for registering, unregistering, and draining global shortcut events.
-
-## Features
-
-- Cross-platform native backend for Windows, macOS, and Linux.
-- Readable MoonBit API layered over a platform-specific C stub.
-- Normalized accelerator parsing with common modifier aliases.
-- Blackbox and whitebox tests plus coverage reporting.
-- GitHub Actions matrix coverage uploads for Linux, macOS, and Windows.
+This package targets `native` and supports Windows, macOS, and Linux X11 sessions, and exposes a small polling-friendly API for registering, unregistering, and draining global shortcut events.
 
 ## Platform support
 
@@ -32,8 +24,6 @@ The package lives under [`src`](src), targets `native`, and exposes a small poll
 ```bash
 moon add justjavac/global_hotkey
 ```
-
-This package supports the `native` target only.
 
 ## Quick start
 
@@ -125,13 +115,6 @@ moon info
 moon fmt
 ```
 
-## Coverage badges
+## License
 
-This is a native project with platform-specific behavior, so the repository publishes four Codecov badges:
-
-- total coverage
-- Linux coverage
-- macOS coverage
-- Windows coverage
-
-Badges update after the `main` branch CI uploads fresh coverage to Codecov.
+MIT. See [LICENSE](LICENSE).
