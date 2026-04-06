@@ -1,0 +1,1 @@
+# justjavac/global_hotkey
