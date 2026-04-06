@@ -31,16 +31,11 @@ extern "C" fn register_hotkey_ffi(
 
 ///|
 /// Unregisters a previously registered hotkey id from the backend.
-extern "C" fn unregister_hotkey_ffi(
-  state : GlobalHotkeyState,
-  id : Int,
-) -> Int = "mb_global_hotkey_unregister"
+extern "C" fn unregister_hotkey_ffi(state : GlobalHotkeyState, id : Int) -> Int = "mb_global_hotkey_unregister"
 
 ///|
 /// Pops the next triggered hotkey id from the backend queue.
-extern "C" fn take_triggered_id_ffi(
-  state : GlobalHotkeyState,
-) -> Int = "mb_global_hotkey_take_triggered_id"
+extern "C" fn take_triggered_id_ffi(state : GlobalHotkeyState) -> Int = "mb_global_hotkey_take_triggered_id"
 
 ///|
 /// Returns the last backend error message as UTF-8 bytes.

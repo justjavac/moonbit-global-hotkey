@@ -113,33 +113,27 @@ test "decode_key_name covers named key aliases" {
 test "parse_accelerator normalizes modifiers and keys" {
   assert_eq(
     parse_accelerator("cmd + option + k"),
-    Ok(
-      ParsedGlobalHotkey::{
-        normalized: "Alt+Meta+K",
-        modifiers: 9,
-        key_name: "K",
-      },
-    ),
+    Ok(ParsedGlobalHotkey::{
+      normalized: "Alt+Meta+K",
+      modifiers: 9,
+      key_name: "K",
+    }),
   )
   assert_eq(
     parse_accelerator("ctrl+shift+page-down"),
-    Ok(
-      ParsedGlobalHotkey::{
-        normalized: "Ctrl+Shift+PageDown",
-        modifiers: 6,
-        key_name: "PageDown",
-      },
-    ),
+    Ok(ParsedGlobalHotkey::{
+      normalized: "Ctrl+Shift+PageDown",
+      modifiers: 6,
+      key_name: "PageDown",
+    }),
   )
   assert_eq(
     parse_accelerator("ctrl+-"),
-    Ok(
-      ParsedGlobalHotkey::{
-        normalized: "Ctrl+Minus",
-        modifiers: 2,
-        key_name: "Minus",
-      },
-    ),
+    Ok(ParsedGlobalHotkey::{
+      normalized: "Ctrl+Minus",
+      modifiers: 2,
+      key_name: "Minus",
+    }),
   )
 }
 
@@ -147,33 +141,27 @@ test "parse_accelerator normalizes modifiers and keys" {
 test "parse_accelerator accepts modifier aliases" {
   assert_eq(
     parse_accelerator("ctl+quote"),
-    Ok(
-      ParsedGlobalHotkey::{
-        normalized: "Ctrl+Quote",
-        modifiers: 2,
-        key_name: "Quote",
-      },
-    ),
+    Ok(ParsedGlobalHotkey::{
+      normalized: "Ctrl+Quote",
+      modifiers: 2,
+      key_name: "Quote",
+    }),
   )
   assert_eq(
     parse_accelerator("control+super+grave"),
-    Ok(
-      ParsedGlobalHotkey::{
-        normalized: "Ctrl+Meta+Backquote",
-        modifiers: 10,
-        key_name: "Backquote",
-      },
-    ),
+    Ok(ParsedGlobalHotkey::{
+      normalized: "Ctrl+Meta+Backquote",
+      modifiers: 10,
+      key_name: "Backquote",
+    }),
   )
   assert_eq(
     parse_accelerator("windows+pageup"),
-    Ok(
-      ParsedGlobalHotkey::{
-        normalized: "Meta+PageUp",
-        modifiers: 8,
-        key_name: "PageUp",
-      },
-    ),
+    Ok(ParsedGlobalHotkey::{
+      normalized: "Meta+PageUp",
+      modifiers: 8,
+      key_name: "PageUp",
+    }),
   )
 }
 
@@ -253,7 +241,10 @@ test "key and support status helpers cover both outcomes" {
     unregister_status_result(1, @utf8.encode("missing"), "Ctrl+K"),
     Err("missing"),
   )
-  assert_eq(register_status_result(0, @utf8.encode("ignored"), "Ctrl+K"), Ok(true))
+  assert_eq(
+    register_status_result(0, @utf8.encode("ignored"), "Ctrl+K"),
+    Ok(true),
+  )
   assert_eq(
     unregister_status_result(0, @utf8.encode("ignored"), "Ctrl+K"),
     Ok(true),
@@ -271,7 +262,8 @@ test "drain_with collects until the producer returns None" {
       } else {
         None
       }
-    }) is ["Ctrl+K", "Alt+F12"],
+    })
+    is ["Ctrl+K", "Alt+F12"],
   )
 }
 
@@ -300,7 +292,8 @@ test "registration store tracks ids and normalization" {
 
   match store.plan_register("ctrl") {
     Ok(_) => fail("expected invalid accelerator to fail")
-    Err(error) => assert_eq(error, "global_hotkey accelerator must include a key")
+    Err(error) =>
+      assert_eq(error, "global_hotkey accelerator must include a key")
   }
 }
 

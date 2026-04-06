@@ -1,0 +1,39 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "justjavac/global_hotkey"
+
+// Values
+pub fn create() -> Result[GlobalHotkeyManager, String]
+
+pub fn ensure_supported() -> Result[Unit, String]
+
+pub fn is_supported() -> Bool
+
+// Errors
+
+// Types and methods
+pub struct GlobalHotkeyManager {
+  state : GlobalHotkeyState
+  store : RegistrationStore
+}
+pub fn GlobalHotkeyManager::destroy(Self) -> Unit
+pub fn GlobalHotkeyManager::drain_triggered(Self) -> Array[String]
+pub fn GlobalHotkeyManager::list(Self) -> Array[String]
+pub fn GlobalHotkeyManager::register(Self, String) -> Result[Bool, String]
+pub fn GlobalHotkeyManager::take_triggered(Self) -> String?
+pub fn GlobalHotkeyManager::unregister(Self, String) -> Result[Bool, String]
+
+#external
+pub type GlobalHotkeyState
+
+type ParsedGlobalHotkey derive(Eq, Show)
+
+type RegisterPlan derive(Eq, Show)
+
+type RegistrationStore
+
+type UnregisterPlan derive(Eq, Show)
+
+// Type aliases
+
+// Traits
+

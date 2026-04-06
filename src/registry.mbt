@@ -34,7 +34,9 @@ fn new_registration_store() -> RegistrationStore {
 
 ///|
 /// Rejects mutations after the manager has been destroyed.
-fn RegistrationStore::ensure_alive(self : RegistrationStore) -> Result[Unit, String] {
+fn RegistrationStore::ensure_alive(
+  self : RegistrationStore,
+) -> Result[Unit, String] {
   if self.destroyed {
     Err(destroyed_error_message())
   } else {
@@ -90,7 +92,8 @@ fn RegistrationStore::plan_unregister(
         Err(error) => Err(error)
         Ok(parsed) =>
           match self.registrations.get(parsed.normalized) {
-            Some(id) => Ok(Some(UnregisterPlan::{ id, normalized: parsed.normalized }))
+            Some(id) =>
+              Ok(Some(UnregisterPlan::{ id, normalized: parsed.normalized }))
             None => Ok(None)
           }
       }

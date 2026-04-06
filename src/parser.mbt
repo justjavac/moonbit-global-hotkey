@@ -284,13 +284,11 @@ fn parse_accelerator(raw : String) -> Result[ParsedGlobalHotkey, String] {
       let normalized = normalize_accelerator_name(
         control, shift, alt, meta, key_name,
       )
-      Ok(
-        ParsedGlobalHotkey::{
-          normalized,
-          modifiers: modifier_mask(control, shift, alt, meta),
-          key_name,
-        },
-      )
+      Ok(ParsedGlobalHotkey::{
+        normalized,
+        modifiers: modifier_mask(control, shift, alt, meta),
+        key_name,
+      })
     }
     None => Err("global_hotkey accelerator must include a key")
   }

@@ -28,15 +28,9 @@ test "manager lifecycle can be exercised on the current machine" {
     Err(_) => ()
     Ok(manager) => {
       assert_eq(manager.list().length(), 0)
-      let candidates = [
-        "Shift+F24",
-        "Ctrl+Shift+F23",
-        "Alt+Shift+F22",
-      ]
+      let candidates = ["Shift+F24", "Ctrl+Shift+F23", "Alt+Shift+F22"]
       match register_first_available(manager, candidates) {
-        None => {
-          manager.destroy()
-        }
+        None => manager.destroy()
         Some(accelerator) => {
           assert_eq(manager.list().length(), 1)
           assert_eq(manager.unregister(accelerator), Ok(true))
@@ -52,10 +46,7 @@ test "manager lifecycle can be exercised on the current machine" {
 test "native registration conflict surfaces as an error" {
   match (@global_hotkey.create(), @global_hotkey.create()) {
     (Ok(first), Ok(second)) => {
-      let candidates = [
-        "Ctrl+Shift+F24",
-        "Alt+Shift+F23",
-      ]
+      let candidates = ["Ctrl+Shift+F24", "Alt+Shift+F23"]
       match register_first_available(first, candidates) {
         None => {
           first.destroy()

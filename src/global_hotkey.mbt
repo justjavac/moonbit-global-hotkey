@@ -55,7 +55,9 @@ fn register_status_result(
   if status == 0 {
     Ok(true)
   } else {
-    Err(decode_error_message(error_message, register_error_message(accelerator)))
+    Err(
+      decode_error_message(error_message, register_error_message(accelerator)),
+    )
   }
 }
 
@@ -69,7 +71,9 @@ fn unregister_status_result(
   if status == 0 {
     Ok(true)
   } else {
-    Err(decode_error_message(error_message, unregister_error_message(accelerator)))
+    Err(
+      decode_error_message(error_message, unregister_error_message(accelerator)),
+    )
   }
 }
 
@@ -136,15 +140,10 @@ pub fn ensure_supported() -> Result[Unit, String] {
 /// ```
 pub fn create() -> Result[GlobalHotkeyManager, String] {
   let state = create_state_ffi()
-  match create_status_result(state_is_null_ffi(state), last_error_message_ffi()) {
+  match
+    create_status_result(state_is_null_ffi(state), last_error_message_ffi()) {
     Err(error) => Err(error)
-    Ok(_) =>
-      Ok(
-        GlobalHotkeyManager::{
-          state,
-          store: new_registration_store(),
-        },
-      )
+    Ok(_) => Ok(GlobalHotkeyManager::{ state, store: new_registration_store() })
   }
 }
 
@@ -168,24 +167,24 @@ pub fn GlobalHotkeyManager::register(
     Ok(state) =>
       match self.store.plan_register(accelerator) {
         Err(error) => Err(error)
-        Ok(plan) => {
-          match register_status_result(
-            register_hotkey_ffi(
-              state,
-              plan.id,
-              plan.parsed.modifiers,
-              @utf8.encode(plan.parsed.key_name),
-            ),
-            last_error_message_ffi(),
-            plan.parsed.normalized,
-          ) {
+        Ok(plan) =>
+          match
+            register_status_result(
+              register_hotkey_ffi(
+                state,
+                plan.id,
+                plan.parsed.modifiers,
+                @utf8.encode(plan.parsed.key_name),
+              ),
+              last_error_message_ffi(),
+              plan.parsed.normalized,
+            ) {
             Err(error) => Err(error)
             Ok(result) => {
               self.store.commit_register(plan)
               Ok(result)
             }
           }
-        }
       }
   }
 }
@@ -207,19 +206,19 @@ pub fn GlobalHotkeyManager::unregister(
       match self.store.plan_unregister(accelerator) {
         Err(error) => Err(error)
         Ok(None) => Ok(false)
-        Ok(Some(plan)) => {
-          match unregister_status_result(
-            unregister_hotkey_ffi(state, plan.id),
-            last_error_message_ffi(),
-            plan.normalized,
-          ) {
+        Ok(Some(plan)) =>
+          match
+            unregister_status_result(
+              unregister_hotkey_ffi(state, plan.id),
+              last_error_message_ffi(),
+              plan.normalized,
+            ) {
             Err(error) => Err(error)
             Ok(result) => {
               self.store.commit_unregister(plan)
               Ok(result)
             }
           }
-        }
       }
   }
 }
