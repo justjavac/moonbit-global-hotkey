@@ -1,5 +1,5 @@
 ///|
-// Chooses a likely-free accelerator for smoke tests.
+/// Attempts candidate accelerators until one registers successfully.
 fn register_first_available(
   manager : @global_hotkey.GlobalHotkeyManager,
   candidates : Array[String],
