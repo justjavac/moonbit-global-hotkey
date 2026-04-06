@@ -28,6 +28,77 @@
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
+#define MB_MOD_ALT 0x0001u
+#define MB_MOD_CONTROL 0x0002u
+#define MB_MOD_SHIFT 0x0004u
+#define MB_MOD_META 0x0008u
+
+#if defined(_MSC_VER)
+#define MB_THREAD_LOCAL __declspec(thread)
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#define MB_THREAD_LOCAL _Thread_local
+#else
+#define MB_THREAD_LOCAL
+#endif
+
+typedef struct mb_registration {
+  int32_t id;
+  uint32_t modifiers;
+  uint32_t keycode;
+  struct mb_registration *next;
+} mb_registration_t;
+
+typedef struct mb_trigger {
+  int32_t id;
+  struct mb_trigger *next;
+} mb_trigger_t;
+
+typedef struct mb_global_hotkey_state {
+  mb_registration_t *registrations;
+  mb_trigger_t *triggered_head;
+  mb_trigger_t *triggered_tail;
+  int32_t startup_status;
+  char startup_error[512];
+#ifdef _WIN32
+  HANDLE thread;
+  HANDLE ready_event;
+  DWORD thread_id;
+  CRITICAL_SECTION lock;
+#elif defined(__linux__)
+  pthread_t thread;
+  pthread_mutex_t lock;
+  pthread_cond_t ready_cond;
+  int ready;
+  int running;
+  int thread_started;
+  int wake_pipe[2];
+  Display *display;
+  Window root_window;
+  unsigned int lock_mask;
+  unsigned int numlock_mask;
+#elif defined(__APPLE__)
+  pthread_t thread;
+  pthread_mutex_t lock;
+  pthread_cond_t ready_cond;
+  int ready;
+  int running;
+  int thread_started;
+  CFMachPortRef event_tap;
+  CFRunLoopRef run_loop;
+#endif
+} mb_global_hotkey_state_t;
+
+static int mb_name_is_function_key(const char *name);
+static int mb_keycode_from_name_common(
+    const char *name,
+    uint32_t *out_alpha_numeric);
+static void mb_state_set_startup_error(
+    mb_global_hotkey_state_t *state,
+    const char *message);
+static void mb_push_trigger_locked(
+    mb_global_hotkey_state_t *state,
+    int32_t id);
+
 #ifdef __APPLE__
 typedef struct mb_macos_api {
   void *app_services;
@@ -817,79 +888,6 @@ static void *mb_linux_thread_main(void *raw_state) {
   return NULL;
 }
 #endif
-
-#ifdef __linux__
-#include <sys/select.h>
-#include <unistd.h>
-#include <X11/Xlib.h>
-#include <X11/keysym.h>
-#endif
-
-#ifdef __APPLE__
-#include <ApplicationServices/ApplicationServices.h>
-#include <Carbon/Carbon.h>
-#include <CoreFoundation/CoreFoundation.h>
-#endif
-
-#define MB_MOD_ALT 0x0001u
-#define MB_MOD_CONTROL 0x0002u
-#define MB_MOD_SHIFT 0x0004u
-#define MB_MOD_META 0x0008u
-
-#if defined(_MSC_VER)
-#define MB_THREAD_LOCAL __declspec(thread)
-#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-#define MB_THREAD_LOCAL _Thread_local
-#else
-#define MB_THREAD_LOCAL
-#endif
-
-typedef struct mb_registration {
-  int32_t id;
-  uint32_t modifiers;
-  uint32_t keycode;
-  struct mb_registration *next;
-} mb_registration_t;
-
-typedef struct mb_trigger {
-  int32_t id;
-  struct mb_trigger *next;
-} mb_trigger_t;
-
-typedef struct mb_global_hotkey_state {
-  mb_registration_t *registrations;
-  mb_trigger_t *triggered_head;
-  mb_trigger_t *triggered_tail;
-  int32_t startup_status;
-  char startup_error[512];
-#ifdef _WIN32
-  HANDLE thread;
-  HANDLE ready_event;
-  DWORD thread_id;
-  CRITICAL_SECTION lock;
-#elif defined(__linux__)
-  pthread_t thread;
-  pthread_mutex_t lock;
-  pthread_cond_t ready_cond;
-  int ready;
-  int running;
-  int thread_started;
-  int wake_pipe[2];
-  Display *display;
-  Window root_window;
-  unsigned int lock_mask;
-  unsigned int numlock_mask;
-#elif defined(__APPLE__)
-  pthread_t thread;
-  pthread_mutex_t lock;
-  pthread_cond_t ready_cond;
-  int ready;
-  int running;
-  int thread_started;
-  CFMachPortRef event_tap;
-  CFRunLoopRef run_loop;
-#endif
-} mb_global_hotkey_state_t;
 
 static MB_THREAD_LOCAL char mb_last_error_message[512] = "";
 
