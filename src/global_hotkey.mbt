@@ -1,5 +1,9 @@
 ///|
-/// Owns the native backend and keeps the normalized registration index in sync.
+/// Owns one native backend instance and the normalized registration index for it.
+///
+/// Create a value with `create()`, use its methods to manage global shortcuts,
+/// and call `destroy()` when you are finished so the native resources are
+/// released promptly.
 pub struct GlobalHotkeyManager {
   state : GlobalHotkeyState
   store : RegistrationStore
@@ -93,10 +97,14 @@ fn drain_with(take : () -> String?) -> Array[String] {
 ///|
 /// Returns `true` when the current native target exposes a usable global hotkey backend.
 ///
-/// This is a lightweight capability probe. On Linux it checks for an X11
-/// session and an X11 backend that can be opened at runtime. On macOS the
-/// native backend may still require Input Monitoring permission when a manager
-/// is created.
+/// This is a lightweight capability probe that does not allocate a manager, so
+/// it is safe to call repeatedly during startup. On Linux it checks for an X11
+/// session and an X11 backend that can be opened at runtime. On macOS a later
+/// `create()` call may still fail until the process has Input Monitoring
+/// permission.
+///
+/// Use this when you only need a boolean answer. If you also want a
+/// human-readable failure reason, call `ensure_supported()` instead.
 ///
 /// ```mbt check
 /// test "support detection can be queried" {
@@ -110,9 +118,13 @@ pub fn is_supported() -> Bool {
 ///|
 /// Verifies that the current native target has a backend this package can use.
 ///
-/// This is useful for fast-fail checks before building a polling loop. When the
-/// probe can provide a concrete reason, the returned `Err(String)` contains it;
-/// otherwise a generic compatibility message is used.
+/// This is useful for fast-fail checks before building a polling loop. Unlike
+/// `create()`, it only reports capability and does not retain any native state.
+/// When the probe can provide a concrete reason, the returned `Err(String)`
+/// contains it; otherwise a generic compatibility message is used.
+///
+/// Call this when you want an actionable error message for logs or setup flows
+/// before attempting real registration work.
 ///
 /// ```mbt check
 /// test "support can be checked without registering anything" {
@@ -126,9 +138,14 @@ pub fn ensure_supported() -> Result[Unit, String] {
 ///|
 /// Creates a manager that can register, unregister, and poll global hotkeys.
 ///
-/// The returned manager owns native resources and should be released with
-/// `destroy()` when you are done. On macOS the backend may fail here if the
-/// process has not been granted Input Monitoring permission yet.
+/// This allocates the native backend state and initializes the package's
+/// normalized registration store. The returned manager owns native resources
+/// until `destroy()` is called, so long-lived applications will usually create
+/// one manager and reuse it for their polling loop.
+///
+/// Returns `Err(String)` when the backend cannot be initialized on the current
+/// machine, including unsupported platforms, missing Linux X11 support, or
+/// missing macOS Input Monitoring permission.
 ///
 /// ```mbt check
 /// test "manager creation can be attempted safely" {
@@ -156,8 +173,12 @@ pub fn create() -> Result[GlobalHotkeyManager, String] {
 /// `Ctrl+Shift+K`.
 ///
 /// Returns `Ok(true)` when the native backend accepted the registration.
-/// Duplicate registrations, invalid accelerators, and backend failures are
-/// returned as `Err(String)`.
+/// Returns `Err(String)` when the accelerator is malformed, the normalized
+/// shortcut is already registered by this manager, the manager has already been
+/// destroyed, or the native backend rejects the request.
+///
+/// Successful registrations become visible immediately through `list()`,
+/// `take_triggered()`, and `drain_triggered()`.
 pub fn GlobalHotkeyManager::register(
   self : GlobalHotkeyManager,
   accelerator : String,
@@ -193,9 +214,12 @@ pub fn GlobalHotkeyManager::register(
 /// Unregisters one previously registered accelerator.
 ///
 /// The accelerator string is normalized with the same rules as `register()`.
+/// Callers may therefore use any supported alias or spacing style.
+///
 /// Returns `Ok(true)` when a registration existed and was removed, `Ok(false)`
-/// when nothing matched, and `Err(String)` for invalid input or backend
-/// failures.
+/// when nothing matched in this manager, and `Err(String)` when the accelerator
+/// is malformed, the manager was destroyed, or the backend refuses the
+/// unregistration.
 pub fn GlobalHotkeyManager::unregister(
   self : GlobalHotkeyManager,
   accelerator : String,
@@ -224,10 +248,11 @@ pub fn GlobalHotkeyManager::unregister(
 }
 
 ///|
-/// Returns every currently registered accelerator in normalized form.
+/// Returns a snapshot of every accelerator currently registered in this manager.
 ///
-/// This is purely the MoonBit-side view of the manager and does not block on
-/// the native backend.
+/// Each entry uses the canonical normalized form produced by `register()`. This
+/// only reads the MoonBit-side registry, so it does not block on the native
+/// backend and remains available even when no triggers are pending.
 pub fn GlobalHotkeyManager::list(self : GlobalHotkeyManager) -> Array[String] {
   self.store.list()
 }
@@ -235,8 +260,12 @@ pub fn GlobalHotkeyManager::list(self : GlobalHotkeyManager) -> Array[String] {
 ///|
 /// Pops the next triggered accelerator from the native queue, if any.
 ///
-/// The manager never blocks here. Poll this method from your application's main
-/// loop when you want to react to global shortcuts.
+/// This call never blocks. It returns `Some(String)` for the next queued
+/// trigger in normalized form and `None` when the queue is empty or when the
+/// manager has already been destroyed.
+///
+/// Poll this method from your application's main loop when you want to react to
+/// global shortcuts one event at a time.
 pub fn GlobalHotkeyManager::take_triggered(
   self : GlobalHotkeyManager,
 ) -> String? {
@@ -250,7 +279,9 @@ pub fn GlobalHotkeyManager::take_triggered(
 /// Drains every currently queued trigger in the order reported by the backend.
 ///
 /// This is a convenience wrapper over repeated `take_triggered()` calls and is
-/// useful when you poll infrequently.
+/// useful when you poll infrequently or want to batch-handle pending shortcuts.
+/// It returns an empty array when nothing is queued, and it also becomes empty
+/// after `destroy()` because polling is no longer possible.
 pub fn GlobalHotkeyManager::drain_triggered(
   self : GlobalHotkeyManager,
 ) -> Array[String] {
@@ -261,7 +292,8 @@ pub fn GlobalHotkeyManager::drain_triggered(
 /// Releases every native resource owned by this manager and clears its registry.
 ///
 /// Calling `destroy()` more than once is harmless. After destruction,
-/// registration methods return `Err(String)` and trigger polling returns `None`.
+/// `register()` and `unregister()` return `Err(String)`, `take_triggered()`
+/// returns `None`, and `drain_triggered()` returns `[]`.
 pub fn GlobalHotkeyManager::destroy(self : GlobalHotkeyManager) -> Unit {
   if !self.store.destroyed {
     destroy_state_ffi(self.state)

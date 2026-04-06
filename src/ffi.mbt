@@ -1,5 +1,8 @@
 ///|
-/// Holds the opaque native backend state pointer.
+/// Represents the opaque native backend handle owned by `GlobalHotkeyManager`.
+///
+/// Package users do not inspect values of this type directly. It exists so the
+/// manager can retain the foreign state returned by the platform backend.
 #external
 pub type GlobalHotkeyState
 
