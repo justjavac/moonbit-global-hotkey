@@ -972,6 +972,28 @@ static char *mb_copy_bytes_to_c_string(moonbit_bytes_t bytes) {
   return copy;
 }
 
+#if defined(__linux__) || defined(__APPLE__)
+static int mb_init_sync_primitives(
+    pthread_mutex_t *lock,
+    pthread_cond_t *ready_cond) {
+  if (pthread_mutex_init(lock, NULL) != 0) {
+    return 0;
+  }
+  if (pthread_cond_init(ready_cond, NULL) != 0) {
+    pthread_mutex_destroy(lock);
+    return 0;
+  }
+  return 1;
+}
+
+static void mb_destroy_sync_primitives(
+    pthread_mutex_t *lock,
+    pthread_cond_t *ready_cond) {
+  pthread_cond_destroy(ready_cond);
+  pthread_mutex_destroy(lock);
+}
+#endif
+
 static void mb_state_set_startup_error(
     mb_global_hotkey_state_t *state,
     const char *message) {
@@ -994,6 +1016,14 @@ static void mb_free_triggers(mb_trigger_t *trigger) {
     free(trigger);
     trigger = next;
   }
+}
+
+static void mb_clear_runtime_state_locked(mb_global_hotkey_state_t *state) {
+  mb_free_registrations(state->registrations);
+  mb_free_triggers(state->triggered_head);
+  state->registrations = NULL;
+  state->triggered_head = NULL;
+  state->triggered_tail = NULL;
 }
 
 static void mb_push_trigger_locked(
@@ -1310,11 +1340,7 @@ static DWORD WINAPI mb_windows_thread_main(void *raw_state) {
       UnregisterHotKey(NULL, cursor->id);
       cursor = cursor->next;
     }
-    mb_free_registrations(state->registrations);
-    state->registrations = NULL;
-    mb_free_triggers(state->triggered_head);
-    state->triggered_head = NULL;
-    state->triggered_tail = NULL;
+    mb_clear_runtime_state_locked(state);
   }
   LeaveCriticalSection(&state->lock);
   return 0;
@@ -1400,16 +1426,14 @@ MOONBIT_FFI_EXPORT mb_global_hotkey_state_t *mb_global_hotkey_create(void) {
   state->root_window = DefaultRootWindow(state->display);
   state->lock_mask = LockMask;
   state->numlock_mask = mb_linux_detect_numlock_mask(state->display);
-  if (pthread_mutex_init(&state->lock, NULL) != 0 ||
-      pthread_cond_init(&state->ready_cond, NULL) != 0) {
+  if (!mb_init_sync_primitives(&state->lock, &state->ready_cond)) {
     mb_x11_api.XCloseDisplay(state->display);
     free(state);
     mb_set_error_message("failed to initialize Linux synchronization primitives");
     return NULL;
   }
   if (pipe(state->wake_pipe) != 0) {
-    pthread_cond_destroy(&state->ready_cond);
-    pthread_mutex_destroy(&state->lock);
+    mb_destroy_sync_primitives(&state->lock, &state->ready_cond);
     mb_x11_api.XCloseDisplay(state->display);
     free(state);
     mb_set_error_message("failed to create the Linux wake pipe");
@@ -1418,8 +1442,7 @@ MOONBIT_FFI_EXPORT mb_global_hotkey_state_t *mb_global_hotkey_create(void) {
   if (pthread_create(&state->thread, NULL, mb_linux_thread_main, state) != 0) {
     close(state->wake_pipe[0]);
     close(state->wake_pipe[1]);
-    pthread_cond_destroy(&state->ready_cond);
-    pthread_mutex_destroy(&state->lock);
+    mb_destroy_sync_primitives(&state->lock, &state->ready_cond);
     mb_x11_api.XCloseDisplay(state->display);
     free(state);
     mb_set_error_message("failed to create the Linux hotkey thread");
@@ -1439,15 +1462,13 @@ MOONBIT_FFI_EXPORT mb_global_hotkey_state_t *mb_global_hotkey_create(void) {
     mb_set_error_message("failed to load the macOS event frameworks");
     return NULL;
   }
-  if (pthread_mutex_init(&state->lock, NULL) != 0 ||
-      pthread_cond_init(&state->ready_cond, NULL) != 0) {
+  if (!mb_init_sync_primitives(&state->lock, &state->ready_cond)) {
     free(state);
     mb_set_error_message("failed to initialize macOS synchronization primitives");
     return NULL;
   }
   if (pthread_create(&state->thread, NULL, mb_macos_thread_main, state) != 0) {
-    pthread_cond_destroy(&state->ready_cond);
-    pthread_mutex_destroy(&state->lock);
+    mb_destroy_sync_primitives(&state->lock, &state->ready_cond);
     free(state);
     mb_set_error_message("failed to create the macOS hotkey thread");
     return NULL;
@@ -1460,8 +1481,7 @@ MOONBIT_FFI_EXPORT mb_global_hotkey_state_t *mb_global_hotkey_create(void) {
   pthread_mutex_unlock(&state->lock);
   if (!state->running) {
     pthread_join(state->thread, NULL);
-    pthread_cond_destroy(&state->ready_cond);
-    pthread_mutex_destroy(&state->lock);
+    mb_destroy_sync_primitives(&state->lock, &state->ready_cond);
     mb_set_error_message(state->startup_error);
     free(state);
     return NULL;
@@ -1515,18 +1535,13 @@ MOONBIT_FFI_EXPORT void mb_global_hotkey_destroy(
       cursor = cursor->next;
     }
     mb_x11_api.XFlush(state->display);
-    mb_free_registrations(state->registrations);
-    mb_free_triggers(state->triggered_head);
-    state->registrations = NULL;
-    state->triggered_head = NULL;
-    state->triggered_tail = NULL;
+    mb_clear_runtime_state_locked(state);
   }
   pthread_mutex_unlock(&state->lock);
   close(state->wake_pipe[0]);
   close(state->wake_pipe[1]);
   mb_x11_api.XCloseDisplay(state->display);
-  pthread_cond_destroy(&state->ready_cond);
-  pthread_mutex_destroy(&state->lock);
+  mb_destroy_sync_primitives(&state->lock, &state->ready_cond);
   free(state);
 #elif defined(__APPLE__)
   if (state->thread_started) {
@@ -1544,14 +1559,9 @@ MOONBIT_FFI_EXPORT void mb_global_hotkey_destroy(
     pthread_join(state->thread, NULL);
   }
   pthread_mutex_lock(&state->lock);
-  mb_free_registrations(state->registrations);
-  mb_free_triggers(state->triggered_head);
-  state->registrations = NULL;
-  state->triggered_head = NULL;
-  state->triggered_tail = NULL;
+  mb_clear_runtime_state_locked(state);
   pthread_mutex_unlock(&state->lock);
-  pthread_cond_destroy(&state->ready_cond);
-  pthread_mutex_destroy(&state->lock);
+  mb_destroy_sync_primitives(&state->lock, &state->ready_cond);
   free(state);
 #else
   free(state);
@@ -1563,12 +1573,13 @@ MOONBIT_FFI_EXPORT int32_t mb_global_hotkey_register(
     int32_t id,
     int32_t modifiers,
     moonbit_bytes_t key_name) {
-  char *name = mb_copy_bytes_to_c_string(key_name);
+  char *name;
 
   if (state == NULL) {
     mb_set_error_message("the native global hotkey state is null");
     return 1;
   }
+  name = mb_copy_bytes_to_c_string(key_name);
   if (name == NULL) {
     mb_set_error_message("failed to copy the key name for registration");
     return 1;
