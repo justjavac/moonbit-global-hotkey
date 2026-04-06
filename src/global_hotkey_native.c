@@ -113,8 +113,16 @@ typedef struct mb_macos_api {
   int64_t (*CGEventGetIntegerValueField)(CGEventRef, CGEventField);
   CFRunLoopSourceRef (*CFMachPortCreateRunLoopSource)(CFAllocatorRef,
                                                       CFMachPortRef, CFIndex);
+  CFRunLoopObserverRef (*CFRunLoopObserverCreate)(
+      CFAllocatorRef,
+      CFOptionFlags,
+      Boolean,
+      CFIndex,
+      CFRunLoopObserverCallBack,
+      CFRunLoopObserverContext *);
   CFRunLoopRef (*CFRunLoopGetCurrent)(void);
   void (*CFRunLoopAddSource)(CFRunLoopRef, CFRunLoopSourceRef, CFStringRef);
+  void (*CFRunLoopAddObserver)(CFRunLoopRef, CFRunLoopObserverRef, CFStringRef);
   void (*CFRunLoopRun)(void);
   void (*CFRunLoopStop)(CFRunLoopRef);
   void (*CFRunLoopWakeUp)(CFRunLoopRef);
@@ -157,11 +165,19 @@ static int mb_macos_load_api(void) {
   mb_macos_api.CFMachPortCreateRunLoopSource =
       (CFRunLoopSourceRef(*)(CFAllocatorRef, CFMachPortRef, CFIndex))dlsym(
           mb_macos_api.core_foundation, "CFMachPortCreateRunLoopSource");
+  mb_macos_api.CFRunLoopObserverCreate =
+      (CFRunLoopObserverRef(*)(CFAllocatorRef, CFOptionFlags, Boolean, CFIndex,
+                               CFRunLoopObserverCallBack,
+                               CFRunLoopObserverContext *))dlsym(
+          mb_macos_api.core_foundation, "CFRunLoopObserverCreate");
   mb_macos_api.CFRunLoopGetCurrent =
       (CFRunLoopRef(*)(void))dlsym(mb_macos_api.core_foundation, "CFRunLoopGetCurrent");
   mb_macos_api.CFRunLoopAddSource =
       (void (*)(CFRunLoopRef, CFRunLoopSourceRef, CFStringRef))dlsym(
           mb_macos_api.core_foundation, "CFRunLoopAddSource");
+  mb_macos_api.CFRunLoopAddObserver =
+      (void (*)(CFRunLoopRef, CFRunLoopObserverRef, CFStringRef))dlsym(
+          mb_macos_api.core_foundation, "CFRunLoopAddObserver");
   mb_macos_api.CFRunLoopRun =
       (void (*)(void))dlsym(mb_macos_api.core_foundation, "CFRunLoopRun");
   mb_macos_api.CFRunLoopStop =
@@ -181,8 +197,10 @@ static int mb_macos_load_api(void) {
       mb_macos_api.CGEventGetFlags == NULL ||
       mb_macos_api.CGEventGetIntegerValueField == NULL ||
       mb_macos_api.CFMachPortCreateRunLoopSource == NULL ||
+      mb_macos_api.CFRunLoopObserverCreate == NULL ||
       mb_macos_api.CFRunLoopGetCurrent == NULL ||
       mb_macos_api.CFRunLoopAddSource == NULL ||
+      mb_macos_api.CFRunLoopAddObserver == NULL ||
       mb_macos_api.CFRunLoopRun == NULL ||
       mb_macos_api.CFRunLoopStop == NULL ||
       mb_macos_api.CFRunLoopWakeUp == NULL ||
@@ -468,10 +486,25 @@ static CGEventRef mb_macos_event_callback(CGEventTapProxy proxy,
   return event;
 }
 
+static void mb_macos_run_loop_ready_callback(CFRunLoopObserverRef observer,
+                                             CFRunLoopActivity activity,
+                                             void *user_info) {
+  mb_global_hotkey_state_t *state = (mb_global_hotkey_state_t *)user_info;
+  (void)observer;
+  (void)activity;
+
+  pthread_mutex_lock(&state->lock);
+  state->ready = 1;
+  state->running = 1;
+  pthread_cond_signal(&state->ready_cond);
+  pthread_mutex_unlock(&state->lock);
+}
+
 static void *mb_macos_thread_main(void *raw_state) {
   mb_global_hotkey_state_t *state = (mb_global_hotkey_state_t *)raw_state;
   CFMachPortRef event_tap = NULL;
   CFRunLoopSourceRef source = NULL;
+  CFRunLoopObserverRef startup_observer = NULL;
   CFRunLoopRef run_loop = NULL;
   CFStringRef mode = NULL;
 
@@ -528,17 +561,35 @@ static void *mb_macos_thread_main(void *raw_state) {
   run_loop = mb_macos_api.CFRunLoopGetCurrent();
   mb_macos_api.CFRetain(run_loop);
 
+  {
+    CFRunLoopObserverContext observer_context = {0, state, NULL, NULL, NULL};
+    startup_observer = mb_macos_api.CFRunLoopObserverCreate(
+        NULL, kCFRunLoopEntry, false, 0, mb_macos_run_loop_ready_callback,
+        &observer_context);
+  }
+  if (startup_observer == NULL) {
+    pthread_mutex_lock(&state->lock);
+    mb_state_set_startup_error(state, "failed to create the macOS run loop observer");
+    state->ready = 1;
+    pthread_cond_signal(&state->ready_cond);
+    pthread_mutex_unlock(&state->lock);
+    mb_macos_api.CFRelease(run_loop);
+    mb_macos_api.CFRelease(mode);
+    mb_macos_api.CFRelease(source);
+    mb_macos_api.CFRelease(event_tap);
+    return NULL;
+  }
+
   pthread_mutex_lock(&state->lock);
   state->event_tap = event_tap;
   state->run_loop = run_loop;
-  state->ready = 1;
-  state->running = 1;
-  pthread_cond_signal(&state->ready_cond);
   pthread_mutex_unlock(&state->lock);
 
   mb_macos_api.CFRunLoopAddSource(run_loop, source, mode);
+  mb_macos_api.CFRunLoopAddObserver(run_loop, startup_observer, mode);
   mb_macos_api.CGEventTapEnable(event_tap, true);
-  mb_macos_api.CFRelease(mode);
+  mb_macos_api.CFRelease(startup_observer);
+  startup_observer = NULL;
   mb_macos_api.CFRelease(source);
   mb_macos_api.CFRunLoopRun();
 
@@ -548,6 +599,7 @@ static void *mb_macos_thread_main(void *raw_state) {
   state->run_loop = NULL;
   pthread_mutex_unlock(&state->lock);
 
+  mb_macos_api.CFRelease(mode);
   mb_macos_api.CFRelease(run_loop);
   mb_macos_api.CFRelease(event_tap);
   return NULL;
