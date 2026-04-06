@@ -106,6 +106,12 @@ fn drain_with(take : () -> String?) -> Array[String] {
 /// Use this when you only need a boolean answer. If you also want a
 /// human-readable failure reason, call `ensure_supported()` instead.
 ///
+/// # Returns
+///
+/// Returns `true` when this package can open a native backend on the current
+/// machine. Returns `false` when the target is unsupported, when Linux lacks an
+/// X11 session, or when the runtime backend cannot currently be loaded.
+///
 /// ```mbt check
 /// test "support detection can be queried" {
 ///   ignore(@global_hotkey.is_supported())
@@ -125,6 +131,12 @@ pub fn is_supported() -> Bool {
 ///
 /// Call this when you want an actionable error message for logs or setup flows
 /// before attempting real registration work.
+///
+/// # Returns
+///
+/// Returns `Ok(())` when a backend is available right now. Returns `Err(String)`
+/// with a human-readable reason when the current target cannot provide global
+/// hotkeys.
 ///
 /// ```mbt check
 /// test "support can be checked without registering anything" {
@@ -146,6 +158,18 @@ pub fn ensure_supported() -> Result[Unit, String] {
 /// Returns `Err(String)` when the backend cannot be initialized on the current
 /// machine, including unsupported platforms, missing Linux X11 support, or
 /// missing macOS Input Monitoring permission.
+///
+/// # Returns
+///
+/// Returns `Ok(GlobalHotkeyManager)` when the native backend starts
+/// successfully. The returned manager is ready to register accelerators, poll
+/// for triggered shortcuts, and later release its resources with `destroy()`.
+///
+/// # Lifecycle
+///
+/// Each successful call creates an independent manager with its own MoonBit-side
+/// registration store. Most applications should create one manager during
+/// startup and keep it alive for the duration of their event loop.
 ///
 /// ```mbt check
 /// test "manager creation can be attempted safely" {
@@ -172,6 +196,10 @@ pub fn create() -> Result[GlobalHotkeyManager, String] {
 /// normalized before registration, so `ctrl + shift + k` is stored as
 /// `Ctrl+Shift+K`.
 ///
+/// Every accelerator must contain exactly one non-modifier key. Duplicate
+/// modifiers such as `Ctrl+Control+K` and malformed segments such as
+/// `Ctrl++K` are rejected before the native backend is called.
+///
 /// Returns `Ok(true)` when the native backend accepted the registration.
 /// Returns `Err(String)` when the accelerator is malformed, the normalized
 /// shortcut is already registered by this manager, the manager has already been
@@ -179,6 +207,31 @@ pub fn create() -> Result[GlobalHotkeyManager, String] {
 ///
 /// Successful registrations become visible immediately through `list()`,
 /// `take_triggered()`, and `drain_triggered()`.
+///
+/// # Parameters
+///
+/// `accelerator` is a user-facing shortcut string such as `Ctrl+Shift+K`,
+/// `Meta+Space`, or `Alt+F12`.
+///
+/// # Returns
+///
+/// Returns `Ok(true)` when the registration is now active for this manager.
+/// Returns `Err(String)` when parsing fails, the normalized shortcut is already
+/// present in this manager, the manager has been destroyed, or the OS backend
+/// refuses the registration.
+///
+/// ```mbt check
+/// test "register may be attempted on a live manager" {
+///   match @global_hotkey.create() {
+///     Ok(manager) => {
+///       ignore(manager.register("Ctrl+Shift+F24"))
+///       ignore(manager.unregister("Ctrl+Shift+F24"))
+///       manager.destroy()
+///     }
+///     Err(_) => ()
+///   }
+/// }
+/// ```
 pub fn GlobalHotkeyManager::register(
   self : GlobalHotkeyManager,
   accelerator : String,
@@ -220,6 +273,18 @@ pub fn GlobalHotkeyManager::register(
 /// when nothing matched in this manager, and `Err(String)` when the accelerator
 /// is malformed, the manager was destroyed, or the backend refuses the
 /// unregistration.
+///
+/// # Parameters
+///
+/// `accelerator` may use any supported alias or spacing style. It is normalized
+/// before lookup, so `ctrl + k` and `Ctrl+K` refer to the same registration.
+///
+/// # Returns
+///
+/// Returns `Ok(true)` when a matching registration existed and has been removed.
+/// Returns `Ok(false)` when the manager was alive but no normalized shortcut
+/// matched. Returns `Err(String)` when parsing fails, the manager has already
+/// been destroyed, or the native backend reports an unregistration error.
 pub fn GlobalHotkeyManager::unregister(
   self : GlobalHotkeyManager,
   accelerator : String,
@@ -253,6 +318,12 @@ pub fn GlobalHotkeyManager::unregister(
 /// Each entry uses the canonical normalized form produced by `register()`. This
 /// only reads the MoonBit-side registry, so it does not block on the native
 /// backend and remains available even when no triggers are pending.
+///
+/// # Returns
+///
+/// Returns an array of normalized accelerators in registration order. The
+/// returned array is a snapshot, so later `register()` or `unregister()` calls
+/// do not mutate previously returned arrays.
 pub fn GlobalHotkeyManager::list(self : GlobalHotkeyManager) -> Array[String] {
   self.store.list()
 }
@@ -266,6 +337,12 @@ pub fn GlobalHotkeyManager::list(self : GlobalHotkeyManager) -> Array[String] {
 ///
 /// Poll this method from your application's main loop when you want to react to
 /// global shortcuts one event at a time.
+///
+/// # Returns
+///
+/// Returns `Some(String)` with the next queued normalized accelerator when one
+/// is available. Returns `None` when no trigger is pending or when polling is
+/// no longer possible because the manager has been destroyed.
 pub fn GlobalHotkeyManager::take_triggered(
   self : GlobalHotkeyManager,
 ) -> String? {
@@ -282,6 +359,12 @@ pub fn GlobalHotkeyManager::take_triggered(
 /// useful when you poll infrequently or want to batch-handle pending shortcuts.
 /// It returns an empty array when nothing is queued, and it also becomes empty
 /// after `destroy()` because polling is no longer possible.
+///
+/// # Returns
+///
+/// Returns an array containing every currently queued normalized accelerator in
+/// FIFO order. The queue is empty after this call returns, because all pending
+/// trigger ids have been consumed.
 pub fn GlobalHotkeyManager::drain_triggered(
   self : GlobalHotkeyManager,
 ) -> Array[String] {
@@ -294,6 +377,12 @@ pub fn GlobalHotkeyManager::drain_triggered(
 /// Calling `destroy()` more than once is harmless. After destruction,
 /// `register()` and `unregister()` return `Err(String)`, `take_triggered()`
 /// returns `None`, and `drain_triggered()` returns `[]`.
+///
+/// # Lifecycle
+///
+/// Call this once you no longer need the manager, typically during application
+/// shutdown. After destruction, the value may still exist as a MoonBit object,
+/// but it no longer owns a usable native backend.
 pub fn GlobalHotkeyManager::destroy(self : GlobalHotkeyManager) -> Unit {
   if !self.store.destroyed {
     destroy_state_ffi(self.state)
