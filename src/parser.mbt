@@ -7,25 +7,110 @@ struct ParsedGlobalHotkey {
 } derive(Show, Eq)
 
 ///|
+/// Tracks which modifier families have already been seen while parsing.
+priv struct ModifierSet {
+  mut control : Bool
+  mut shift : Bool
+  mut alt : Bool
+  mut meta : Bool
+}
+
+///|
+/// Represents the canonical modifier families supported by this package.
+priv enum ModifierKind {
+  Control
+  Shift
+  Alt
+  Meta
+}
+
+///|
+/// Creates an empty modifier set for one accelerator parse.
+fn new_modifier_set() -> ModifierSet {
+  ModifierSet::{ control: false, shift: false, alt: false, meta: false }
+}
+
+///|
 /// Normalizes a single modifier or key token for case-insensitive matching.
 fn normalize_keyword(raw : String) -> String {
   raw.trim().to_string().to_lower()
 }
 
 ///|
+/// Returns the user-facing duplicate-modifier error for one modifier family.
+fn ModifierKind::duplicate_error(self : ModifierKind) -> String {
+  match self {
+    Control => "global_hotkey accelerator repeats Ctrl"
+    Shift => "global_hotkey accelerator repeats Shift"
+    Alt => "global_hotkey accelerator repeats Alt"
+    Meta => "global_hotkey accelerator repeats Meta"
+  }
+}
+
+///|
+/// Parses modifier aliases into their canonical modifier family.
+fn parse_modifier_kind(token : String) -> ModifierKind? {
+  match normalize_keyword(token) {
+    "ctrl" | "control" | "ctl" => Some(Control)
+    "shift" => Some(Shift)
+    "alt" | "option" => Some(Alt)
+    "meta" | "cmd" | "command" | "super" | "win" | "windows" => Some(Meta)
+    _ => None
+  }
+}
+
+///|
+/// Marks one modifier family as seen, rejecting duplicate aliases.
+fn ModifierSet::enable(
+  self : ModifierSet,
+  modifier : ModifierKind,
+) -> Result[Unit, String] {
+  match modifier {
+    Control =>
+      if self.control {
+        Err(modifier.duplicate_error())
+      } else {
+        self.control = true
+        Ok(())
+      }
+    Shift =>
+      if self.shift {
+        Err(modifier.duplicate_error())
+      } else {
+        self.shift = true
+        Ok(())
+      }
+    Alt =>
+      if self.alt {
+        Err(modifier.duplicate_error())
+      } else {
+        self.alt = true
+        Ok(())
+      }
+    Meta =>
+      if self.meta {
+        Err(modifier.duplicate_error())
+      } else {
+        self.meta = true
+        Ok(())
+      }
+  }
+}
+
+///|
 /// Converts modifier booleans into the backend's logical modifier bitset.
-fn modifier_mask(control : Bool, shift : Bool, alt : Bool, meta : Bool) -> Int {
+fn ModifierSet::mask(self : ModifierSet) -> Int {
   let mut mask = 0
-  if alt {
+  if self.alt {
     mask += 0x0001
   }
-  if control {
+  if self.control {
     mask += 0x0002
   }
-  if shift {
+  if self.shift {
     mask += 0x0004
   }
-  if meta {
+  if self.meta {
     mask += 0x0008
   }
   mask
@@ -33,34 +118,31 @@ fn modifier_mask(control : Bool, shift : Bool, alt : Bool, meta : Bool) -> Int {
 
 ///|
 /// Renders a normalized accelerator string in a stable modifier order.
-fn normalize_accelerator_name(
-  control : Bool,
-  shift : Bool,
-  alt : Bool,
-  meta : Bool,
+fn ModifierSet::normalize_accelerator_name(
+  self : ModifierSet,
   key_name : String,
 ) -> String {
   let builder = StringBuilder::new()
   let mut wrote_modifier = false
-  if control {
+  if self.control {
     builder.write_string("Ctrl")
     wrote_modifier = true
   }
-  if shift {
+  if self.shift {
     if wrote_modifier {
       builder.write_char('+')
     }
     builder.write_string("Shift")
     wrote_modifier = true
   }
-  if alt {
+  if self.alt {
     if wrote_modifier {
       builder.write_char('+')
     }
     builder.write_string("Alt")
     wrote_modifier = true
   }
-  if meta {
+  if self.meta {
     if wrote_modifier {
       builder.write_char('+')
     }
@@ -72,6 +154,12 @@ fn normalize_accelerator_name(
   }
   builder.write_string(key_name)
   builder.to_string()
+}
+
+///|
+/// Builds the unsupported-key error shared by all key decoders.
+fn unsupported_key_error(raw : String) -> String {
+  "unsupported global_hotkey key: " + raw
 }
 
 ///|
@@ -97,10 +185,10 @@ fn decode_key_name(raw : String) -> Result[String, String] {
             '`' => Ok("Backquote")
             '[' => Ok("LeftBracket")
             ']' => Ok("RightBracket")
-            _ => Err("unsupported global_hotkey key: " + raw)
+            _ => Err(unsupported_key_error(raw))
           }
         }
-      None => Err("unsupported global_hotkey key: " + raw)
+      None => Err(unsupported_key_error(raw))
     }
   } else {
     match normalize_keyword(token) {
@@ -173,7 +261,7 @@ fn decode_key_name(raw : String) -> Result[String, String] {
       "f22" => Ok("F22")
       "f23" => Ok("F23")
       "f24" => Ok("F24")
-      _ => Err("unsupported global_hotkey key: " + raw)
+      _ => Err(unsupported_key_error(raw))
     }
   }
 }
@@ -182,10 +270,7 @@ fn decode_key_name(raw : String) -> Result[String, String] {
 /// Parses a user-facing accelerator string into canonical backend data.
 fn parse_accelerator(raw : String) -> Result[ParsedGlobalHotkey, String] {
   let parts = raw.split("+").to_array()
-  let mut control = false
-  let mut shift = false
-  let mut alt = false
-  let mut meta = false
+  let modifiers = new_modifier_set()
   let mut key_name : String? = None
 
   for part in parts {
@@ -193,80 +278,13 @@ fn parse_accelerator(raw : String) -> Result[ParsedGlobalHotkey, String] {
     if token.is_empty() {
       return Err("global_hotkey accelerator contains an empty segment")
     }
-    match normalize_keyword(token) {
-      "ctrl" =>
-        if control {
-          return Err("global_hotkey accelerator repeats Ctrl")
-        } else {
-          control = true
+    match parse_modifier_kind(token) {
+      Some(modifier) =>
+        match modifiers.enable(modifier) {
+          Ok(_) => ()
+          Err(error) => return Err(error)
         }
-      "control" =>
-        if control {
-          return Err("global_hotkey accelerator repeats Ctrl")
-        } else {
-          control = true
-        }
-      "ctl" =>
-        if control {
-          return Err("global_hotkey accelerator repeats Ctrl")
-        } else {
-          control = true
-        }
-      "shift" =>
-        if shift {
-          return Err("global_hotkey accelerator repeats Shift")
-        } else {
-          shift = true
-        }
-      "alt" =>
-        if alt {
-          return Err("global_hotkey accelerator repeats Alt")
-        } else {
-          alt = true
-        }
-      "option" =>
-        if alt {
-          return Err("global_hotkey accelerator repeats Alt")
-        } else {
-          alt = true
-        }
-      "meta" =>
-        if meta {
-          return Err("global_hotkey accelerator repeats Meta")
-        } else {
-          meta = true
-        }
-      "cmd" =>
-        if meta {
-          return Err("global_hotkey accelerator repeats Meta")
-        } else {
-          meta = true
-        }
-      "command" =>
-        if meta {
-          return Err("global_hotkey accelerator repeats Meta")
-        } else {
-          meta = true
-        }
-      "super" =>
-        if meta {
-          return Err("global_hotkey accelerator repeats Meta")
-        } else {
-          meta = true
-        }
-      "win" =>
-        if meta {
-          return Err("global_hotkey accelerator repeats Meta")
-        } else {
-          meta = true
-        }
-      "windows" =>
-        if meta {
-          return Err("global_hotkey accelerator repeats Meta")
-        } else {
-          meta = true
-        }
-      _ =>
+      None =>
         match key_name {
           Some(_) =>
             return Err("global_hotkey accelerator must contain exactly one key")
@@ -281,12 +299,10 @@ fn parse_accelerator(raw : String) -> Result[ParsedGlobalHotkey, String] {
 
   match key_name {
     Some(key_name) => {
-      let normalized = normalize_accelerator_name(
-        control, shift, alt, meta, key_name,
-      )
+      let normalized = modifiers.normalize_accelerator_name(key_name)
       Ok(ParsedGlobalHotkey::{
         normalized,
-        modifiers: modifier_mask(control, shift, alt, meta),
+        modifiers: modifiers.mask(),
         key_name,
       })
     }

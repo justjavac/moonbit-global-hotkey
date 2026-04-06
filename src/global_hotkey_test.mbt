@@ -4,16 +4,13 @@ fn register_first_available(
   manager : @global_hotkey.GlobalHotkeyManager,
   candidates : Array[String],
 ) -> String? {
-  let mut registered : String? = None
   for candidate in candidates {
-    if registered is None {
-      match manager.register(candidate) {
-        Ok(true) => registered = Some(candidate)
-        _ => ()
-      }
+    match manager.register(candidate) {
+      Ok(true) => return Some(candidate)
+      _ => ()
     }
   }
-  registered
+  None
 }
 
 ///|

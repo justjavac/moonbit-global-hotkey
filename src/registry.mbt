@@ -45,26 +45,40 @@ fn RegistrationStore::ensure_alive(
 }
 
 ///|
+/// Parses an accelerator only when the store is still active.
+fn RegistrationStore::parse_active_accelerator(
+  self : RegistrationStore,
+  accelerator : String,
+) -> Result[ParsedGlobalHotkey, String] {
+  match self.ensure_alive() {
+    Err(error) => Err(error)
+    Ok(_) => parse_accelerator(accelerator)
+  }
+}
+
+///|
+/// Reserves and returns the next registration id.
+fn RegistrationStore::take_next_id(self : RegistrationStore) -> Int {
+  let id = self.next_id
+  self.next_id += 1
+  id
+}
+
+///|
 /// Validates a registration request and reserves the next id for it.
 fn RegistrationStore::plan_register(
   self : RegistrationStore,
   accelerator : String,
 ) -> Result[RegisterPlan, String] {
-  match self.ensure_alive() {
+  match self.parse_active_accelerator(accelerator) {
     Err(error) => Err(error)
-    Ok(_) =>
-      match parse_accelerator(accelerator) {
-        Err(error) => Err(error)
-        Ok(parsed) =>
-          match self.registrations.get(parsed.normalized) {
-            Some(_) =>
-              Err("global_hotkey already registered: " + parsed.normalized)
-            None => {
-              let id = self.next_id
-              self.next_id += 1
-              Ok(RegisterPlan::{ id, parsed })
-            }
-          }
+    Ok(parsed) =>
+      match self.registrations.get(parsed.normalized) {
+        Some(_) => Err("global_hotkey already registered: " + parsed.normalized)
+        None => {
+          let id = self.take_next_id()
+          Ok(RegisterPlan::{ id, parsed })
+        }
       }
   }
 }
@@ -85,17 +99,13 @@ fn RegistrationStore::plan_unregister(
   self : RegistrationStore,
   accelerator : String,
 ) -> Result[UnregisterPlan?, String] {
-  match self.ensure_alive() {
+  match self.parse_active_accelerator(accelerator) {
     Err(error) => Err(error)
-    Ok(_) =>
-      match parse_accelerator(accelerator) {
-        Err(error) => Err(error)
-        Ok(parsed) =>
-          match self.registrations.get(parsed.normalized) {
-            Some(id) =>
-              Ok(Some(UnregisterPlan::{ id, normalized: parsed.normalized }))
-            None => Ok(None)
-          }
+    Ok(parsed) =>
+      match self.registrations.get(parsed.normalized) {
+        Some(id) =>
+          Ok(Some(UnregisterPlan::{ id, normalized: parsed.normalized }))
+        None => Ok(None)
       }
   }
 }
