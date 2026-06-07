@@ -4,7 +4,7 @@ struct ParsedGlobalHotkey {
   normalized : String
   modifiers : Int
   key_name : String
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 ///|
 /// Tracks which modifier families have already been seen while parsing.
@@ -27,13 +27,13 @@ priv enum ModifierKind {
 ///|
 /// Creates an empty modifier set for one accelerator parse.
 fn new_modifier_set() -> ModifierSet {
-  ModifierSet::{ control: false, shift: false, alt: false, meta: false }
+  { control: false, shift: false, alt: false, meta: false }
 }
 
 ///|
 /// Normalizes a single modifier or key token for case-insensitive matching.
 fn normalize_keyword(raw : String) -> String {
-  raw.trim().to_string().to_lower()
+  raw.trim().to_owned().to_lower()
 }
 
 ///|
@@ -165,7 +165,7 @@ fn unsupported_key_error(raw : String) -> String {
 ///|
 /// Decodes a key token into the canonical key name used by all backends.
 fn decode_key_name(raw : String) -> Result[String, String] {
-  let token = raw.trim().to_string()
+  let token = raw.trim().to_owned()
   let upper = token.to_upper()
   if upper.length() == 1 {
     match upper.get_char(0) {
@@ -274,7 +274,7 @@ fn parse_accelerator(raw : String) -> Result[ParsedGlobalHotkey, String] {
   let mut key_name : String? = None
 
   for part in parts {
-    let token = part.to_string().trim().to_string()
+    let token = part.to_owned().trim().to_owned()
     if token.is_empty() {
       return Err("global_hotkey accelerator contains an empty segment")
     }
@@ -300,11 +300,7 @@ fn parse_accelerator(raw : String) -> Result[ParsedGlobalHotkey, String] {
   match key_name {
     Some(key_name) => {
       let normalized = modifiers.normalize_accelerator_name(key_name)
-      Ok(ParsedGlobalHotkey::{
-        normalized,
-        modifiers: modifiers.mask(),
-        key_name,
-      })
+      Ok({ normalized, modifiers: modifiers.mask(), key_name })
     }
     None => Err("global_hotkey accelerator must include a key")
   }

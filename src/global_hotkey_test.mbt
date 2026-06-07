@@ -30,8 +30,8 @@ test "manager lifecycle can be exercised on the current machine" {
         None => manager.destroy()
         Some(accelerator) => {
           assert_eq(manager.list().length(), 1)
-          assert_eq(manager.unregister(accelerator), Ok(true))
-          assert_eq(manager.unregister(accelerator), Ok(false))
+          assert_true(manager.unregister(accelerator) == Ok(true))
+          assert_true(manager.unregister(accelerator) == Ok(false))
           manager.destroy()
         }
       }
@@ -88,7 +88,7 @@ test "destroy makes future operations inert" {
         Ok(_) => fail("expected destroyed manager unregistration to fail")
         Err(_) => ()
       }
-      assert_eq(manager.take_triggered(), None)
+      assert_true(manager.take_triggered() == None)
       assert_true(manager.drain_triggered() is [])
     }
   }

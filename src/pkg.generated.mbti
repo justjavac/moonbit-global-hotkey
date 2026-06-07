@@ -1,6 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "justjavac/global_hotkey"
 
+import {
+  "moonbitlang/core/debug",
+}
+
 // Values
 pub fn create() -> Result[GlobalHotkeyManager, String]
 
@@ -25,13 +29,13 @@ pub fn GlobalHotkeyManager::unregister(Self, String) -> Result[Bool, String]
 #external
 pub type GlobalHotkeyState
 
-type ParsedGlobalHotkey derive(Eq, Show)
+type ParsedGlobalHotkey derive(Eq, @debug.Debug)
 
-type RegisterPlan derive(Eq, Show)
+type RegisterPlan derive(Eq, @debug.Debug)
 
 type RegistrationStore
 
-type UnregisterPlan derive(Eq, Show)
+type UnregisterPlan derive(Eq, @debug.Debug)
 
 // Type aliases
 
