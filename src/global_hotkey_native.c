@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -133,6 +134,14 @@ typedef struct mb_macos_api {
 } mb_macos_api_t;
 
 static mb_macos_api_t mb_macos_api;
+
+static CGEventMask mb_macos_event_mask_bit(CGEventType event_type) {
+  unsigned int shift = (unsigned int)event_type;
+  if (shift >= sizeof(CGEventMask) * CHAR_BIT) {
+    return (CGEventMask)0;
+  }
+  return ((CGEventMask)1u) << shift;
+}
 
 static int mb_macos_load_api(void) {
   if (mb_macos_api.initialized) {
@@ -519,7 +528,7 @@ static void *mb_macos_thread_main(void *raw_state) {
 
   event_tap = mb_macos_api.CGEventTapCreate(
       kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionListenOnly,
-      ((CGEventMask)1) << kCGEventKeyDown,
+      mb_macos_event_mask_bit(kCGEventKeyDown),
       mb_macos_event_callback, state);
   if (event_tap == NULL) {
     pthread_mutex_lock(&state->lock);
@@ -748,7 +757,9 @@ static unsigned int mb_linux_detect_numlock_mask(Display *display) {
           modifier_map->modifiermap[modifier_index * modifier_map->max_keypermod +
                                     key_index];
       if (keycode == numlock_keycode) {
-        mask = (unsigned int)(1u << modifier_index);
+        if ((unsigned int)modifier_index < sizeof(unsigned int) * CHAR_BIT) {
+          mask = 1u << (unsigned int)modifier_index;
+        }
         break;
       }
     }
